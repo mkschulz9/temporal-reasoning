@@ -57,51 +57,6 @@ class TemporalReasoning:
             self.state_transition_probs[state][action][next_state] = weight
 
         self._normalize_transitions(num_unique_states, default_weight)
-    
-    # parses observation state weights
-    # input: state observation weights file
-    # output: none, data is stored in 'appearance_probs'
-    def _parse_state_observation_weights(self, file):
-        _, num_unique_states, _, default_weight = map(int, next(file).split())
-        default_weight = float(default_weight)
-
-        for line in file:
-            parts = line.strip().split()
-            state, observation, weight = parts[0].strip('"'), parts[1].strip('"'), float(parts[2])
-            self.appearance_probs[observation][state] = weight
-
-        self._normalize_state_observations(num_unique_states, default_weight)
-    
-    def _parse_observation_actions(self, file):
-        num_pairs = int(next(file))
-        
-        for _ in range(num_pairs - 1):
-            line = next(file).strip()
-            parts = line.split()
-            observation, action = parts[0].strip('"'), parts[1].strip('"')
-            self.observation_action_pairs.append((observation, action))
-        
-        self.observation_action_pairs.append(next(file).strip().strip('"'))
-        self.observation_action_pairs.append(num_pairs)
-        
-    # fills in missing states from an observation if necessary & normalizes observation state weights
-    # input: number of unique states, default weight
-    # output: none, data is stored in 'appearance_probs'
-    def _normalize_state_observations(self, num_unique_states, default_weight):
-        for observation in self.appearance_probs:
-            if default_weight != 0:
-                    num_current_states = len(self.appearance_probs[observation])
-                    num_missing_states = num_unique_states - num_current_states
-
-                    if num_missing_states > 0:
-                        for missing_state in self._get_missing_states(observation = observation):
-                            self.appearance_probs[observation][missing_state] = default_weight
-
-            total_weight = sum(self.appearance_probs[observation].values())
-
-            for state in self.appearance_probs[observation]:
-                weight = self.appearance_probs[observation][state]
-                self.appearance_probs[observation][state] = weight / total_weight
         
     # fills in missing transitions if necessary & normalizes state action state weights
     # input: number of unique states, default weight
@@ -122,6 +77,62 @@ class TemporalReasoning:
                 for next_state in self.state_transition_probs[state][action]:
                     weight = self.state_transition_probs[state][action][next_state]
                     self.state_transition_probs[state][action][next_state] = weight / total_weight
+    
+    # parses observation state weights
+    # input: state observation weights file
+    # output: none, data is stored in 'appearance_probs'
+    def _parse_state_observation_weights(self, file):
+        _, num_unique_states, _, default_weight = map(int, next(file).split())
+        default_weight = float(default_weight)
+
+        for line in file:
+            parts = line.strip().split()
+            state, observation, weight = parts[0].strip('"'), parts[1].strip('"'), float(parts[2])
+            self.appearance_probs[observation][state] = weight
+
+        self._normalize_state_observations(num_unique_states, default_weight)
+    
+    # fills in missing states from an observation if necessary & normalizes observation state weights
+    # input: number of unique states, default weight
+    # output: none, data is stored in 'appearance_probs'
+    def _normalize_state_observations(self, num_unique_states, default_weight):
+        for observation in self.appearance_probs:
+            if default_weight != 0:
+                    num_current_states = len(self.appearance_probs[observation])
+                    num_missing_states = num_unique_states - num_current_states
+
+                    if num_missing_states > 0:
+                        for missing_state in self._get_missing_states(observation = observation):
+                            self.appearance_probs[observation][missing_state] = default_weight
+
+            total_weight = sum(self.appearance_probs[observation].values())
+
+            for state in self.appearance_probs[observation]:
+                weight = self.appearance_probs[observation][state]
+                self.appearance_probs[observation][state] = weight / total_weight
+    
+    # parses observation action pairs
+    # input: observation action pairs file
+    # output: none, data is stored in 'observation_action_pairs'
+    def _parse_observation_actions(self, file):
+        num_pairs = int(next(file))
+        
+        for _ in range(num_pairs - 1):
+            line = next(file).strip()
+            parts = line.split()
+            observation, action = parts[0].strip('"'), parts[1].strip('"')
+            self.observation_action_pairs.append((observation, action))
+        
+        self.observation_action_pairs.append(next(file).strip().strip('"'))
+        self.observation_action_pairs.append(num_pairs)
+
+    # HELPER FUNCTIONS:
+
+    # creates nested dictionaries
+    # input: none
+    # output: nested dictionary
+    def _nested_dict_factory(self): 
+        return defaultdict(self._nested_dict_factory)
 
     # finds and returns missing next states
     # input: optionally state, action, or observation
@@ -135,12 +146,6 @@ class TemporalReasoning:
         )
             
         return all_states - existing_next_states
-
-    # creates nested dictionaries
-    # input: none
-    # output: nested dictionary
-    def _nested_dict_factory(self): 
-        return defaultdict(self._nested_dict_factory)
         
     '''
         # print content of state_transition_probs 
@@ -169,4 +174,4 @@ class TemporalReasoning:
         exit()
     '''
     
-    # Left Off: working on '_parse_observation_actions'
+    # Left Off: finished parsing inputs, need to implement temporal reasoning algorithm (Viterbi algorithm)
