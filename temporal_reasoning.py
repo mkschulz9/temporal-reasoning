@@ -14,7 +14,7 @@ class TemporalReasoning:
     # output: none, inputs are stored in class variables
     def parse_inputs(self):
         for file_name in self.file_names:
-            with open("./io/stage1/inputs/" + file_name, 'r') as file:
+            with open("./io/stage2/inputs/" + file_name, 'r') as file:
                 next(file)
                 if file_name == self.file_names[0]:
                     self._parse_normalize_state_weights(file)
@@ -38,17 +38,26 @@ class TemporalReasoning:
             path[state] = [state]
 
         # Step 2: Recursion
-        for t in range(1, len(self.observation_action_pairs)-1):
+        for t in range(1, len(self.observation_action_pairs)):
             prob_matrix.append({})
             newpath = {}
 
             for current_state in self.state_probs:
-                (prob, state) = max(
-                    (prob_matrix[t-1][prev_state] *
-                    self.state_transition_probs[prev_state][self.observation_action_pairs[t-1][1]].get(current_state, 0) *
-                    self.appearance_probs[self.observation_action_pairs[t][0]].get(current_state, 0), prev_state)
-                    for prev_state in self.state_probs
-                )
+                if self.observation_action_pairs[t-1][1] is not None:
+                    # Normal case with an action
+                    (prob, state) = max(
+                        (prob_matrix[t-1][prev_state] *
+                        self.state_transition_probs[prev_state][self.observation_action_pairs[t-1][1]].get(current_state, 0) *
+                        self.appearance_probs[self.observation_action_pairs[t][0]].get(current_state, 0), prev_state)
+                        for prev_state in self.state_probs
+                    )
+                else:
+                    # Case with no action, only use appearance probability
+                    (prob, state) = max(
+                        (prob_matrix[t-1][prev_state] * 
+                        self.appearance_probs[self.observation_action_pairs[t][0]].get(current_state, 0), prev_state)
+                        for prev_state in self.state_probs
+                    )
 
                 prob_matrix[t][current_state] = prob
                 newpath[current_state] = path[state] + [current_state]
@@ -68,7 +77,7 @@ class TemporalReasoning:
     # input: most probable path
     # output: none, output is printed in 'states.txt'
     def write_output(self, most_probable_path):
-        with open("./io/stage1/output/states.txt", 'w') as file:
+        with open("./io/stage2/output/states.txt", 'w') as file:
             file.write("states\n")
             file.write(str(len(most_probable_path)) + "\n")
             for state in most_probable_path:
@@ -164,22 +173,22 @@ class TemporalReasoning:
     # input: observation action pairs file
     # output: none, data is stored in 'observation_action_pairs'
     def _parse_observation_actions(self, file):
-        num_pairs = int(next(file))
+        num_pairs = int(next(file).strip())
         
         for _ in range(num_pairs - 1):
             line = next(file).strip()
             parts = line.split()
             observation, action = parts[0].strip('"'), parts[1].strip('"')
-            
             self.observation_action_pairs.append((observation, action))
-            
+        
         last_line = next(file).strip().strip('"')
         if " " in last_line:
             observation, action = last_line.split()
+            observation, action = observation.strip('"'), action.strip('"')
             self.observation_action_pairs.append((observation, action))
-            
-        for val in self.observation_action_pairs:
-            print(val)
+        else:
+            observation = last_line
+            self.observation_action_pairs.append((observation, None))
             
     # HELPER FUNCTIONS:
 
