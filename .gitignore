@@ -1,3 +1,7 @@
+io/stage1/output/states.txt
+io/stage2/output/states.txt
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
