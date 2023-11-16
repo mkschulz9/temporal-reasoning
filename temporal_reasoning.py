@@ -14,7 +14,7 @@ class TemporalReasoning:
     # output: none, inputs are stored in class variables
     def parse_inputs(self):
         for file_name in self.file_names:
-            with open("./io/stage2/inputs/" + file_name, 'r') as file:
+            with open("./io/stage1/inputs/" + file_name, 'r') as file:
                 next(file)
                 if file_name == self.file_names[0]:
                     self._parse_normalize_state_weights(file)
@@ -26,58 +26,50 @@ class TemporalReasoning:
                     self._parse_observation_actions(file)
     
     # implements the Viterbi algorithm
-    # input: none
-    # output: most probable path, probability
+    # input: None
+    # output: most probable path of states
     def run_viterbi_algo(self):
-        prob_matrix = [{}] 
-        path = {}
+        num_timesteps = len(self.observation_action_pairs) - 1
+        viterbi_probabilities = self._nested_dict_factory()
+        backpointers = self._nested_dict_factory()
 
-        # Step 1: Initialization
         for state in self.state_probs:
-            prob_matrix[0][state] = self.state_probs[state] * self.appearance_probs[self.observation_action_pairs[0][0]].get(state, 0)
-            path[state] = [state]
+            viterbi_probabilities[0][state] = self.state_probs[state] * \
+                self.appearance_probs[self.observation_action_pairs[0][0]][state]
+            backpointers[0][state] = None
 
-        # Step 2: Recursion
-        for t in range(1, len(self.observation_action_pairs)):
-            prob_matrix.append({})
-            newpath = {}
-
+        for timestep in range(1, num_timesteps + 1):
             for current_state in self.state_probs:
-                if self.observation_action_pairs[t-1][1] is not None:
-                    # Normal case with an action
-                    (prob, state) = max(
-                        (prob_matrix[t-1][prev_state] *
-                        self.state_transition_probs[prev_state][self.observation_action_pairs[t-1][1]].get(current_state, 0) *
-                        self.appearance_probs[self.observation_action_pairs[t][0]].get(current_state, 0), prev_state)
-                        for prev_state in self.state_probs
-                    )
-                else:
-                    # Case with no action, only use appearance probability
-                    (prob, state) = max(
-                        (prob_matrix[t-1][prev_state] * 
-                        self.appearance_probs[self.observation_action_pairs[t][0]].get(current_state, 0), prev_state)
-                        for prev_state in self.state_probs
-                    )
+                max_value = float('-inf')
+                max_state = None
 
-                prob_matrix[t][current_state] = prob
-                newpath[current_state] = path[state] + [current_state]
+                for previous_state in self.state_probs:
+                    arrow_value = self.state_transition_probs[previous_state][self.observation_action_pairs[timestep - 1][1]][current_state] * \
+                        self.appearance_probs[self.observation_action_pairs[timestep][0]][current_state]
+                    potential_viterbi_probability = arrow_value * viterbi_probabilities[timestep - 1][previous_state]
 
-            path = newpath
+                    if potential_viterbi_probability > max_value:
+                        max_value = potential_viterbi_probability
+                        max_state = previous_state
 
-        # Step 3: Termination
-        n = len(self.observation_action_pairs) - 1
-        (prob, max_state) = max((prob_matrix[n][state], state) for state in self.state_probs)
+                viterbi_probabilities[timestep][current_state] = max_value
+                backpointers[timestep][current_state] = max_state
 
-        # Step 4: Path Backtracking
-        most_probable_path = path[max_state]
+        path = []
+        last_state = max(viterbi_probabilities[num_timesteps], key=viterbi_probabilities[num_timesteps].get)
+        path.append(last_state)
 
-        return most_probable_path, prob
+        for timestep in range(num_timesteps, 0, -1):
+            last_state = backpointers[timestep][last_state]
+            path.insert(0, last_state)
+
+        return path
 
     # writes output to file
     # input: most probable path
     # output: none, output is printed in 'states.txt'
     def write_output(self, most_probable_path):
-        with open("./io/stage2/output/states.txt", 'w') as file:
+        with open("./io/stage1/output/states.txt", 'w') as file:
             file.write("states\n")
             file.write(str(len(most_probable_path)) + "\n")
             for state in most_probable_path:
@@ -100,7 +92,7 @@ class TemporalReasoning:
         
         for state in self.state_probs:
             self.state_probs[state] /= total_weight
-    
+            
     # parses state action state weights
     # input: state action state weights file
     # output: none, data is stored in 'state_transition_probs'
@@ -154,8 +146,10 @@ class TemporalReasoning:
     # input: number of unique states, default weight
     # output: none, data is stored in 'appearance_probs'
     def _normalize_state_observations(self, num_unique_states, default_weight):
+        weights = defaultdict(list)
+        
         for observation in self.appearance_probs:
-            if default_weight != 0:
+            if default_weight != 0: # maybe change this to just add 0
                     num_current_states = len(self.appearance_probs[observation])
                     num_missing_states = num_unique_states - num_current_states
 
@@ -163,11 +157,12 @@ class TemporalReasoning:
                         for missing_state in self._get_missing_states(observation = observation):
                             self.appearance_probs[observation][missing_state] = default_weight
 
-            total_weight = sum(self.appearance_probs[observation].values())
-
             for state in self.appearance_probs[observation]:
-                weight = self.appearance_probs[observation][state]
-                self.appearance_probs[observation][state] = weight / total_weight
+                weights[state].append(self.appearance_probs[observation][state])
+              
+        for observation in self.appearance_probs:
+            for state in self.appearance_probs[observation]:
+                self.appearance_probs[observation][state] = self.appearance_probs[observation][state] / sum(weights[state])
     
     # parses observation action pairs
     # input: observation action pairs file
@@ -182,6 +177,7 @@ class TemporalReasoning:
             self.observation_action_pairs.append((observation, action))
         
         last_line = next(file).strip().strip('"')
+        
         if " " in last_line:
             observation, action = last_line.split()
             observation, action = observation.strip('"'), action.strip('"')
@@ -210,38 +206,3 @@ class TemporalReasoning:
         )
             
         return all_states - existing_next_states
-        
-    # TESTING FUNCTIONS:
-    
-    '''
-        # print content of state_transition_probs 
-        count_total = 0
-        for state in self.state_transition_probs:
-            count_transitions = 0
-            for action in self.state_transition_probs[state]:
-                probability = 0
-                for next_state in self.state_transition_probs[state][action]:
-                    count_transitions += 1
-                    count_total += 1
-                    probability += self.state_transition_probs[state][action][next_state]
-                    #print(state, action, next_state, self.state_transition_probs[state][action][next_state])
-                print(f"Total probability for action {action}: {probability}")
-            print(f"Number of transitions for state {state}: {count_transitions}\n")
-        print(f"Total number of transitions: {count_total}. Expected number of transitions: {(num_unique_states ** 2) * num_unique_actions}\n")
-        exit()
-        
-        # print content of appearance_probs 
-        count_total = 0
-        for observation in self.appearance_probs:
-            count_states = 0
-            probability = 0
-            for state in self.appearance_probs[observation]:
-                count_states += 1
-                count_total += 1
-                probability += self.appearance_probs[observation][state]
-                #print(observation, state, self.appearance_probs[observation][state])
-            print(f"Total probability for observation {observation}: {probability}")
-            print(f"Number of states for observation {observation}: {count_states}\n")
-        print(f"Total number of elems in appearance probability table: {count_total}. Expected number: {num_unique_states * num_unique_observaitons}\n")
-        exit()
-    '''

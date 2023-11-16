@@ -8,7 +8,7 @@ def main():
     reasoning.parse_inputs()
     
     # run Viterbi algorithm
-    most_probable_path, _ = reasoning.run_viterbi_algo()
+    most_probable_path = reasoning.run_viterbi_algo()
     
     # print result to output file
     reasoning.write_output(most_probable_path)
