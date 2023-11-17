@@ -14,7 +14,7 @@ class TemporalReasoning:
     # output: none, inputs are stored in class variables
     def parse_inputs(self):
         for file_name in self.file_names:
-            with open("./io/stage1/inputs/" + file_name, 'r') as file:
+            with open("./io/stage2/inputs/" + file_name, 'r') as file:
                 next(file)
                 if file_name == self.file_names[0]:
                     self._parse_normalize_state_weights(file)
@@ -34,8 +34,14 @@ class TemporalReasoning:
         backpointers = self._nested_dict_factory()
 
         for state in self.state_probs:
-            viterbi_probabilities[0][state] = self.state_probs[state] * \
-                self.appearance_probs[self.observation_action_pairs[0][0]][state]
+            state_prob = self.state_probs[state]
+            appearance_prob = self.appearance_probs[self.observation_action_pairs[0][0]][state]
+            
+            if (state_prob and appearance_prob) and not (isinstance(state_prob, dict) or isinstance(appearance_prob, dict)):
+                viterbi_probabilities[0][state] = state_prob * appearance_prob
+            else:
+                viterbi_probabilities[0][state] = 0
+            
             backpointers[0][state] = None
 
         for timestep in range(1, num_timesteps + 1):
@@ -44,8 +50,14 @@ class TemporalReasoning:
                 max_state = None
 
                 for previous_state in self.state_probs:
-                    arrow_value = self.state_transition_probs[previous_state][self.observation_action_pairs[timestep - 1][1]][current_state] * \
-                        self.appearance_probs[self.observation_action_pairs[timestep][0]][current_state]
+                    transition_prob = self.state_transition_probs[previous_state][self.observation_action_pairs[timestep - 1][1]].get(current_state)
+                    appearance_prob = self.appearance_probs[self.observation_action_pairs[timestep][0]].get(current_state)
+
+                    if (transition_prob and appearance_prob) and not (isinstance(transition_prob, dict) or isinstance(appearance_prob, dict)):
+                        arrow_value = transition_prob * appearance_prob
+                    else:
+                        arrow_value = 0
+                        
                     potential_viterbi_probability = arrow_value * viterbi_probabilities[timestep - 1][previous_state]
 
                     if potential_viterbi_probability > max_value:
@@ -69,7 +81,7 @@ class TemporalReasoning:
     # input: most probable path
     # output: none, output is printed in 'states.txt'
     def write_output(self, most_probable_path):
-        with open("./io/stage1/output/states.txt", 'w') as file:
+        with open("./io/stage2/output/states.txt", 'w') as file:
             file.write("states\n")
             file.write(str(len(most_probable_path)) + "\n")
             for state in most_probable_path:
@@ -80,16 +92,23 @@ class TemporalReasoning:
     # output: none, normalized data is stored in 'state_probs'
     def _parse_normalize_state_weights(self, file):
         total_weight = 0
-        next(file)
+        try:
+            _, default_weight = map(int, next(file).split())
+        except ValueError:
+            default_weight = 0
         
         for line in file:
             parts = line.strip().split('"')
             state = parts[1]
-            weight = float(parts[2].strip())
+            weight = float(parts[2].strip()) if parts[2].strip() else default_weight
             
             self.state_probs[state] = weight
             total_weight += weight
         
+        if total_weight == 0:
+            self.write_output([])
+            exit()
+            
         for state in self.state_probs:
             self.state_probs[state] /= total_weight
             
@@ -97,41 +116,54 @@ class TemporalReasoning:
     # input: state action state weights file
     # output: none, data is stored in 'state_transition_probs'
     def _parse_state_action_state_weights(self, file):
-        _, num_unique_states, _, default_weight = map(int, next(file).split())
+        seen_actions = []
+        _, _, _, default_weight = map(int, next(file).split())
         default_weight = float(default_weight)
 
         for line in file:
             parts = line.strip().split()
             state, action, next_state, weight = parts[0].strip('"'), parts[1].strip('"'), parts[2].strip('"'), float(parts[3])
             
+            if action not in seen_actions:
+                seen_actions.append(action)
+                
             self.state_transition_probs[state][action][next_state] = weight
 
-        self._normalize_transitions(num_unique_states, default_weight)
+        self._normalize_transitions(default_weight, seen_actions)
         
     # fills in missing transitions if necessary & normalizes state action state weights
     # input: number of unique states, default weight
     # output: none, data is stored in 'state_transition_probs'
-    def _normalize_transitions(self, num_unique_states, default_weight):
+    def _normalize_transitions(self, default_weight, actions):
+        if default_weight != 0:
+            states = [state for state in self.state_probs]
+            
+            for state in states:
+                for action in actions:
+                    for next_state in states:
+                        if next_state not in self.state_transition_probs[state][action]:
+                            self.state_transition_probs[state][action][next_state] = default_weight
+                    
+                    total_weight = sum(self.state_transition_probs[state][action].values())
+                    
+                    for next_state in self.state_transition_probs[state][action]:
+                        weight = self.state_transition_probs[state][action][next_state]
+                        self.state_transition_probs[state][action][next_state] = weight / total_weight
+                    
         for state in self.state_transition_probs:
             for action in self.state_transition_probs[state]:
-                if default_weight != 0:
-                    num_current_transitions = len(self.state_transition_probs[state][action])
-                    num_missing_transitions = num_unique_states - num_current_transitions
-
-                    if num_missing_transitions > 0:
-                        for missing_state in self._get_missing_states(state, action):
-                            self.state_transition_probs[state][action][missing_state] = default_weight
-
+                
                 total_weight = sum(self.state_transition_probs[state][action].values())
-
+                
                 for next_state in self.state_transition_probs[state][action]:
                     weight = self.state_transition_probs[state][action][next_state]
                     self.state_transition_probs[state][action][next_state] = weight / total_weight
-    
+                    
     # parses observation state weights
     # input: state observation weights file
     # output: none, data is stored in 'appearance_probs'
     def _parse_state_observation_weights(self, file):
+        seen_observations = []
         _, num_unique_states, _, default_weight = map(int, next(file).split())
         default_weight = float(default_weight)
 
@@ -139,24 +171,25 @@ class TemporalReasoning:
             parts = line.strip().split()
             state, observation, weight = parts[0].strip('"'), parts[1].strip('"'), float(parts[2])
             self.appearance_probs[observation][state] = weight
+            
+            if observation not in seen_observations:
+                seen_observations.append(observation)
 
-        self._normalize_state_observations(num_unique_states, default_weight)
+        self._normalize_state_observations(num_unique_states, default_weight, seen_observations)
     
     # fills in missing states from an observation if necessary & normalizes observation state weights
     # input: number of unique states, default weight
     # output: none, data is stored in 'appearance_probs'
-    def _normalize_state_observations(self, num_unique_states, default_weight):
+    def _normalize_state_observations(self, num_unique_states, default_weight, observations):
         weights = defaultdict(list)
+         
+        states = [state for state in self.state_probs]
         
-        for observation in self.appearance_probs:
-            if default_weight != 0: # maybe change this to just add 0
-                    num_current_states = len(self.appearance_probs[observation])
-                    num_missing_states = num_unique_states - num_current_states
-
-                    if num_missing_states > 0:
-                        for missing_state in self._get_missing_states(observation = observation):
-                            self.appearance_probs[observation][missing_state] = default_weight
-
+        for observation in observations:
+            for state in states:
+                if state not in self.appearance_probs[observation] and default_weight != 0:
+                    self.appearance_probs[observation][state] = default_weight
+                
             for state in self.appearance_probs[observation]:
                 weights[state].append(self.appearance_probs[observation][state])
               
@@ -185,8 +218,6 @@ class TemporalReasoning:
         else:
             observation = last_line
             self.observation_action_pairs.append((observation, None))
-            
-    # HELPER FUNCTIONS:
 
     # creates nested dictionaries
     # input: none

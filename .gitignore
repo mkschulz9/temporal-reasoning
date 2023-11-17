@@ -1,6 +1,6 @@
 io/stage1/output/states.txt
 io/stage2/output/states.txt
-
+io/edge_case
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
