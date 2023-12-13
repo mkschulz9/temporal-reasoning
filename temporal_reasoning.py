@@ -12,9 +12,9 @@ class TemporalReasoning:
     # reads and parses inputs
     # input: none
     # output: none, inputs are stored in class variables
-    def parse_inputs(self):
+    def parse_inputs(self, scenario):
         for file_name in self.file_names:
-            with open("./io/stage2/inputs/" + file_name, 'r') as file:
+            with open("./io/" + scenario + "/inputs/" + file_name, 'r') as file:
                 next(file)
                 if file_name == self.file_names[0]:
                     self._parse_normalize_state_weights(file)
@@ -80,8 +80,8 @@ class TemporalReasoning:
     # writes output to file
     # input: most probable path
     # output: none, output is printed in 'states.txt'
-    def write_output(self, most_probable_path):
-        with open("./io/stage2/output/states.txt", 'w') as file:
+    def write_output(self, most_probable_path, scenario):
+        with open("./io/" + scenario + "/output/states.txt", 'w') as file:
             file.write("states\n")
             file.write(str(len(most_probable_path)) + "\n")
             for state in most_probable_path:
